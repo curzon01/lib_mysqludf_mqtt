@@ -4,7 +4,7 @@
 # Compiler settings
 CC = gcc
 CXXFLAGS = -Wall -shared -fPIC -I/usr/include/mysql
-LDFLAGS = -lpaho-mqtt3c
+LDFLAGS = -lpaho-mqtt3cs -ljsonparser
 
 # Makefile settings
 LIBNAME = lib_mysqludf_mqtt.so

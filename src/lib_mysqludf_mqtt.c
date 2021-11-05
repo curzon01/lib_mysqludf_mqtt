@@ -22,6 +22,7 @@
 #include <ctype.h>
 #include <mysql.h>
 #include <MQTTClient.h>
+#include <json-parser/json.h>
 #include "lib_mysqludf_mqtt.h"
 
 #ifdef DEBUG
@@ -84,6 +85,64 @@ void parmerror(const char *context, UDF_ARGS *args)
     }
 }
 
+int get_json_value(const char *jsonstr, const char *key, int type, void *jsonvalue)
+{
+    int rc = JSON_OK;
+    int i;
+
+    if (NULL == jsonstr || !*jsonstr) {
+        return JSON_ERROR_EMPTY_STR;
+    }
+
+    json_char *json = (json_char*)jsonstr;
+    json_value *value = json_parse(json, strlen(jsonstr));
+    if (value == NULL || json_object != value->type) {
+        return JSON_ERROR_INVALID_STR;
+    }
+
+    for (i=0; i<value->u.object.length; i++) {
+        if(0 == strcmp(key, value->u.object.values[i].name)) {
+            if (type != value->u.object.values[i].value->type) {
+                rc = JSON_ERROR_WRONG_TYPE;
+            }
+            else {
+                switch (value->u.object.values[i].value->type) {
+                    case json_none:
+                            rc = JSON_ERROR_WRONG_VALUE;
+                            break;
+                    case json_null:
+                            rc = JSON_ERROR_WRONG_VALUE;
+                            break;
+                    case json_object:
+                            rc = JSON_ERROR_WRONG_VALUE;
+                            break;
+                    case json_array:
+                            rc = JSON_ERROR_WRONG_VALUE;
+                            break;
+                    case json_integer:
+                            *(long *)jsonvalue = (long)value->u.object.values[i].value->u.integer;
+                            break;
+                    case json_double:
+                            rc = JSON_ERROR_WRONG_VALUE;
+                            break;
+                    case json_string:
+                            *(char **)jsonvalue = value->u.object.values[i].value->u.string.ptr;
+                            break;
+                    case json_boolean:
+                            *(bool *)jsonvalue = (bool)value->u.object.values[i].value->u.boolean;
+                            break;
+                }
+                break;
+            }
+        }
+    }
+    if (i>=value->u.object.length) {
+        rc = JSON_ERROR_NOT_FOUND;
+    }
+    json_value_free(value);
+    return rc;
+}
+
 /* Library functions */
 
 /**
@@ -105,6 +164,7 @@ bool mqtt_info_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         strcpy(message, "memory allocation error");
         return 1;
     }
+    initid->max_length = MAX_RET_STRLEN;
 
     return 0;
 }
@@ -115,6 +175,7 @@ void mqtt_info_deinit(UDF_INIT *initid)
         free(initid->ptr);
     }
 }
+
 char* mqtt_info(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned long* length, char *is_null, char *error)
 {
     MQTTClient_nameValue *mqttClientVersion;
@@ -132,11 +193,16 @@ char* mqtt_info(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned long* l
     }
 
     mqttClientVersion = MQTTClient_getVersionInfo();
-    while (mqttClientVersion != NULL && mqttClientVersion->name != NULL && mqttClientVersion->value!=NULL) {
-        sprintf(libinfo+strlen(libinfo),"\"%s\":\"%s\"", mqttClientVersion->name, mqttClientVersion->value);
-        mqttClientVersion++;
-        if (mqttClientVersion->name != NULL && mqttClientVersion->value!=NULL) {
+    while (mqttClientVersion != NULL &&
+           mqttClientVersion->name != NULL &&
+           mqttClientVersion->value != NULL &&
+           strlen(libinfo) < MAX_RET_STRLEN-1) {
+        if (*libinfo) {
             strcat(libinfo, ",");
+        }
+        if( (strlen(libinfo) + strlen(mqttClientVersion->name) + strlen(mqttClientVersion->value) + 5) < MAX_RET_STRLEN-1) {
+            sprintf(libinfo+strlen(libinfo), "\"%s\":\"%s\"", mqttClientVersion->name, mqttClientVersion->value);
+            mqttClientVersion++;
         }
     }
 
@@ -178,6 +244,7 @@ void mqtt_lasterror_deinit(UDF_INIT *initid)
         free(initid->ptr);
     }
 }
+
 char* mqtt_lasterror(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned long* length, char *is_null, char *error)
 {
     char *res = (char *)initid->ptr;
@@ -200,8 +267,8 @@ char* mqtt_lasterror(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned lo
  * mqtt_connect
  *
  * Connect to a mqtt server and returns a handle.
- * mqtt_connect(server, [username], [password])
- *      returns connect handle or 0 on erro,ar
+ * mqtt_connect(server {,username} {,password {,options}}})
+ *      returns connect handle or 0 on error
  */
 bool mqtt_connect_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
 {
@@ -215,6 +282,11 @@ bool mqtt_connect_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         (args->arg_count == 3 && args->arg_type[0]==STRING_RESULT && args->args[0]!=NULL
                               && args->arg_type[1]==STRING_RESULT
                               && args->arg_type[2]==STRING_RESULT)
+        || // server, username, password, options
+        (args->arg_count == 4 && args->arg_type[0]==STRING_RESULT && args->args[0]!=NULL
+                              && args->arg_type[1]==STRING_RESULT
+                              && args->arg_type[2]==STRING_RESULT
+                              && args->arg_type[3]==STRING_RESULT)
        ) {
         initid->ptr = malloc(sizeof(connection));
         if (initid->ptr == NULL) {
@@ -230,12 +302,14 @@ bool mqtt_connect_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         return 1;
     }
 }
+
 void mqtt_connect_deinit(UDF_INIT *initid)
 {
     if (initid->ptr != NULL) {
         free(initid->ptr);
     }
 }
+
 ulonglong mqtt_connect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *error)
 {
     connection *conn = (connection *)initid->ptr;
@@ -248,9 +322,13 @@ ulonglong mqtt_connect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
     *is_null = 0;
     *error = 0;
 
-    char *address   = "";
-    char *username  = "";
-    char *password  = "";
+    char *address  = "";
+    char *username = "";
+    char *password = "";
+    char *options  = "";
+    char *opt_str;
+    long opt_long;
+    bool opt_bool;
 
     // Do not assume that the string is null-terminated
     // see https://dev.mysql.com/doc/refman/5.7/en/udf-arguments.html
@@ -265,6 +343,10 @@ ulonglong mqtt_connect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
     if (args->arg_count >= 3 && args->args[2]!=NULL) {
         password  = (char *)args->args[2];
         password[args->lengths[2]] = '\0';
+    }
+    if (args->arg_count >= 4 && args->args[3]!=NULL) {
+        options  = (char *)args->args[3];
+        options[args->lengths[3]] = '\0';
     }
 
     strcpy(last_func, "MQTTClient_create");
@@ -284,11 +366,105 @@ ulonglong mqtt_connect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
     syslog (LOG_NOTICE, "mqtt_connect 'conn - username %s, password %s", username, password);
 #endif
     memcpy(&conn->conn_opts, &(MQTTClient_connectOptions)MQTTClient_connectOptions_initializer, sizeof(MQTTClient_connectOptions));
-    conn->conn_opts.keepAliveInterval = DEFAULT_KEEPALIVEINTERVAL;
-    conn->conn_opts.cleansession = 1;
-    conn->conn_opts.username = username;
-    conn->conn_opts.password = password;
-    conn->conn_opts.MQTTVersion = MQTTVERSION_DEFAULT;
+    memcpy(&conn->ssl_opts, &(MQTTClient_SSLOptions)MQTTClient_SSLOptions_initializer, sizeof(MQTTClient_SSLOptions));
+    memcpy(&conn->will_opts, &(MQTTClient_willOptions)MQTTClient_willOptions_initializer, sizeof(MQTTClient_willOptions));
+
+    // Connection options
+    if (JSON_OK == get_json_value(options, "username", json_string, &opt_str)) {
+        conn->conn_opts.username = opt_str;
+    }
+    else {
+        conn->conn_opts.username = username;
+    }
+    if (JSON_OK == get_json_value(options, "password", json_string, &opt_str)) {
+        conn->conn_opts.password = opt_str;
+    }
+    else {
+        conn->conn_opts.password = password;
+    }
+    if (JSON_OK == get_json_value(options, "keepAliveInterval", json_integer, &opt_long)) {
+        conn->conn_opts.keepAliveInterval = opt_long;
+    }
+    else {
+        conn->conn_opts.keepAliveInterval = DEFAULT_KEEPALIVEINTERVAL;
+    }
+    if (JSON_OK == get_json_value(options, "cleansession", json_boolean, &opt_bool)) {
+        conn->conn_opts.cleansession = opt_bool;
+    }
+    else {
+        conn->conn_opts.cleansession = 1;
+    }
+    if (JSON_OK == get_json_value(options, "MQTTVersion", json_integer, &opt_long)) {
+        conn->conn_opts.MQTTVersion = opt_long;
+    }
+    else {
+        conn->conn_opts.MQTTVersion = MQTTVERSION_DEFAULT;
+    }
+    if (JSON_OK == get_json_value(options, "reliable", json_integer, &opt_long)) {
+        conn->conn_opts.reliable = opt_long;
+    }
+    if (JSON_OK == get_json_value(options, "connectTimeout", json_integer, &opt_long)) {
+        conn->conn_opts.connectTimeout = opt_long;
+    }
+    if (JSON_OK == get_json_value(options, "maxInflightMessages", json_integer, &opt_long)) {
+        conn->conn_opts.maxInflightMessages = opt_long;
+    }
+
+    // SSL options
+    if (JSON_OK == get_json_value(options, "CApath", json_string, &opt_str)) {
+        conn->ssl_opts.CApath = opt_str;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+    if (JSON_OK == get_json_value(options, "CAfile", json_string, &opt_str)) {
+        conn->ssl_opts.trustStore = opt_str;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+    if (JSON_OK == get_json_value(options, "keyStore", json_string, &opt_str)) {
+        conn->ssl_opts.keyStore = opt_str;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+    if (JSON_OK == get_json_value(options, "privateKey", json_string, &opt_str)) {
+        conn->ssl_opts.privateKey = opt_str;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+    if (JSON_OK == get_json_value(options, "privateKeyPassword", json_string, &opt_str)) {
+        conn->ssl_opts.privateKeyPassword = opt_str;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+    if (JSON_OK == get_json_value(options, "enabledCipherSuites", json_string, &opt_str)) {
+        conn->ssl_opts.enabledCipherSuites = opt_str;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+    if (JSON_OK == get_json_value(options, "verify", json_boolean, &opt_bool)) {
+        conn->ssl_opts.verify = opt_bool;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+    if (JSON_OK == get_json_value(options, "enableServerCertAuth", json_boolean, &opt_bool)) {
+        conn->ssl_opts.enableServerCertAuth = opt_bool;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+    if (JSON_OK == get_json_value(options, "sslVersion", json_integer, &opt_long)) {
+        conn->ssl_opts.sslVersion = opt_long;
+        conn->conn_opts.ssl = &conn->ssl_opts;
+    }
+
+    // Last Will and Testament options
+    if (JSON_OK == get_json_value(options, "willTopic", json_string, &opt_str)) {
+        conn->will_opts.topicName = opt_str;
+        conn->conn_opts.will = &conn->will_opts;
+    }
+    if (JSON_OK == get_json_value(options, "willMessage", json_string, &opt_str)) {
+        conn->will_opts.message = opt_str;
+        conn->conn_opts.will = &conn->will_opts;
+    }
+    if (JSON_OK == get_json_value(options, "willRetained", json_boolean, &opt_bool)) {
+        conn->will_opts.retained = opt_bool;
+        conn->conn_opts.will = &conn->will_opts;
+    }
+    if (JSON_OK == get_json_value(options, "willQos", json_integer, &opt_long)) {
+        conn->will_opts.qos = opt_long;
+        conn->conn_opts.will = &conn->will_opts;
+    }
 
 #ifdef DEBUG
     syslog (LOG_NOTICE, "mqtt_connect 'client %p", conn->client);
@@ -336,9 +512,11 @@ bool mqtt_disconnect_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         return 1;
     }
 }
+
 void mqtt_disconnect_deinit(UDF_INIT *initid)
 {
 }
+
 ulonglong mqtt_disconnect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *error)
 {
     MQTTClient client = (MQTTClient)*(longlong*)args->args[0];
@@ -361,14 +539,8 @@ ulonglong mqtt_disconnect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char 
  * Publish a mqtt payload and returns its status.
  *
  * Possible calls
- * 1: mqtt_publish(server, [username], [password], topic, [payload])
- * 2: mqtt_publish(server, [username], [password], topic, [payload], [qos])
- * 3: mqtt_publish(server, [username], [password], topic, [payload], [qos], [retained])
- * 4: mqtt_publish(server, [username], [password], topic, [payload], [qos], [retained], [timeout])
- * 5: mqtt_publish(client, topic, [payload])
- * 6: mqtt_publish(client, topic, [payload], [qos])
- * 7: mqtt_publish(client, topic, [payload], [qos], [retained])
- * 8: mqtt_publish(client, topic, [payload], [qos], [retained], [timeout])
+ * mqtt_publish(server, [username], [password], topic, [payload] {,[qos] {,[retained] {,[timeout]}}})
+ * mqtt_publish(client, topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})
  */
 bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
 {
@@ -701,12 +873,8 @@ ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
  *
  * Subsribe to a mqtt topic and returns the payload if any.
  * Possible calls
- * 1: mqtt_subscribe(server, [username], [password], topic)
- * 2: mqtt_subscribe(server, [username], [password], topic [qos])
- * 3: mqtt_subscribe(server, [username], [password], topic, [qos], [timeout])
- * 4: mqtt_subscribe(client, topic)
- * 5: mqtt_subscribe(client, topic, [qos])
- * 6: mqtt_subscribe(client, topic, [qos], [timeout])
+ * mqtt_subscribe(server, [username], [password], topic, [payload] {,[qos] {,[retained] {,[timeout]}}})
+ * mqtt_subscribe(client, topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})
  *
  * [qos] currently unused
  */
