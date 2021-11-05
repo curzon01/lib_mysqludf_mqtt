@@ -12,7 +12,12 @@ If you like **lib_mysqludf_mqtt** give it a star or fork it:
 
 ## Build instructions for GNU Make
 
-Ensure the [Eclipse Paho C Client Library for the MQTT Protocol](https://github.com/eclipse/paho.mqtt.c) is installed.
+Ensure the [Eclipse Paho C Client Library for the MQTT Protocol](https://github.com/eclipse/paho.mqtt.c) is installed.<br>
+Also install libjsonparser:
+
+```bash
+sudo apt install libjsonparser-dev
+```
 
 ### Install
 
