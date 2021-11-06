@@ -245,7 +245,6 @@ DLLEXP ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, c
  * Possible calls
  * mqtt_subscribe(server, [username], [password], topic, {,[qos] {,[timeout] {,[options]}}})
  * mqtt_subscribe(client, topic, [payload] {,[qos] {,[timeout] {,[options]}}})
- * [qos] currently unused
  *
  * Parameter in {} are optional an can be omit.
  * Parameter in [] can be NULL - in this case a default value is used.

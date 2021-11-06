@@ -963,27 +963,14 @@ ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
             if (args->args[3]!=NULL) topic[args->lengths[3]]    = '\0';
             if (args->args[4]!=NULL) payload[args->lengths[4]]  = '\0';
 
-#ifdef DEBUG
-            syslog (LOG_NOTICE, "mqtt_publish(): MQTTClient_create \"%s\"", address);
-#endif
             strcpy(last_func, "MQTTClient_create");
-            last_rc = MQTTClient_create(&conn->client, address, GetUUID(), MQTTCLIENT_PERSISTENCE_NONE, NULL);
-#ifdef DEBUG
-            syslog (LOG_NOTICE, "mqtt_publish(): MQTTClient_create() returns %d", last_rc);
-#endif
-            conn->rc = last_rc;
+            conn->rc = last_rc = MQTTClient_create(&conn->client, address, GetUUID(), MQTTCLIENT_PERSISTENCE_NONE, NULL);
             if (conn->rc == MQTTCLIENT_SUCCESS) {
 #ifdef DEBUG
-                syslog (LOG_NOTICE, "mqtt_publish(): username=\"%s\", password=\"%s\", options=\"%s\"", username, password, options);
-#endif
-#ifdef DEBUG
-                syslog (LOG_NOTICE, "mqtt_publish(): create_conn");
+                syslog (LOG_NOTICE, "mqtt_publish(): username=\"%s\", password=\"%s\", options='%s'", username, password, options);
 #endif
                 create_conn(conn, username, password, options);
 
-#ifdef DEBUG
-                syslog (LOG_NOTICE, "mqtt_publish(): MQTTClient_connect");
-#endif
                 strcpy(last_func, "MQTTClient_connect");
                 conn->rc = last_rc = MQTTClient_connect(conn->client, &conn->conn_opts);
 #ifdef DEBUG
@@ -1000,7 +987,7 @@ ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
         MQTTClient_message pubmsg = MQTTClient_message_initializer;
         MQTTClient_deliveryToken token;
 #ifdef DEBUG
-        syslog (LOG_NOTICE, "mqtt_publish() '%s': %s", topic, payload);
+        syslog (LOG_NOTICE, "mqtt_publish() topic=\"%s\", payload=%s", topic, payload);
 #endif
         pubmsg.payload = payload;
         pubmsg.payloadlen = payloadlength;
@@ -1024,7 +1011,7 @@ ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
             case 3:
             case 4:
 #ifdef DEBUG
-                syslog (LOG_NOTICE, "mqtt_publish disconnnect 'client %p, rc=%d", conn->client, conn->rc);
+                syslog (LOG_NOTICE, "mqtt_publish() disconnnect - client=%p, rc=%d", conn->client, conn->rc);
 #endif
                 MQTTClient_disconnect(conn->client, timeout);
                 MQTTClient_destroy(&conn->client);
@@ -1049,7 +1036,7 @@ ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
  *
  * Subsribe to a mqtt topic and returns the payload if any.
  * Possible calls
- * mqtt_subscribe(server, [username], [password], topic, [payload] {,[qos] {,[retained] {,[timeout]}}})
+ * mqtt_subscribe(server, [username], [password], topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})
  * mqtt_subscribe(client, topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})
  *
  * [qos] currently unused
@@ -1122,7 +1109,29 @@ bool mqtt_subscribe_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         conn->mqtt_subscribe_format = 3;
         return 0;
     }
-    //~ 4: mqtt_subscribe(client, topic)
+    //~ 4: mqtt_subscribe(server, [username], [password], topic, [qos], [timeout], [options])
+    else if ( args->arg_count==7
+        // server
+         && args->arg_type[0]==STRING_RESULT
+         && args->args[0]!=NULL
+        // username
+         && args->arg_type[1]==STRING_RESULT
+        // password
+         && args->arg_type[2]==STRING_RESULT
+        // topic
+         && args->arg_type[3]==STRING_RESULT
+         && args->args[3]!=NULL
+        // qos
+         && ((args->args[4]==NULL) || (args->arg_type[4]==INT_RESULT && ((int)*((longlong*)args->args[4])>=0 && (int)*((longlong*)args->args[4])<=2)))
+        // timeout
+         && ((args->args[5]==NULL) || (args->arg_type[5]==INT_RESULT && ((int)*((longlong*)args->args[5])>=0)))
+        // options
+         && args->arg_type[6]==STRING_RESULT
+        ) {
+        conn->mqtt_subscribe_format = 4;
+        return 0;
+    }
+    //~ 5: mqtt_subscribe(client, topic)
     else if ( args->arg_count==2
         // client
          && args->arg_type[0]==INT_RESULT
@@ -1130,10 +1139,10 @@ bool mqtt_subscribe_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
          && args->arg_type[1]==STRING_RESULT
          && args->args[1]!=NULL
         ) {
-        conn->mqtt_subscribe_format = 4;
+        conn->mqtt_subscribe_format = 5;
         return 0;
     }
-    //~ 5: mqtt_subscribe(client, topic, [qos])
+    //~ 6: mqtt_subscribe(client, topic, [qos])
     else if ( args->arg_count==3
         // client
          && args->arg_type[0]==INT_RESULT
@@ -1143,10 +1152,10 @@ bool mqtt_subscribe_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         // qos
          && ((args->args[2]==NULL) || (args->arg_type[2]==INT_RESULT && ((int)*((longlong*)args->args[2])>=0 && (int)*((longlong*)args->args[2])<=2)))
         ) {
-        conn->mqtt_subscribe_format = 5;
+        conn->mqtt_subscribe_format = 6;
         return 0;
     }
-    //~ 6: mqtt_subscribe(client, topic, [qos], [timeout])
+    //~ 7: mqtt_subscribe(client, topic, [qos], [timeout])
     else if ( args->arg_count==4
         // client
          && args->arg_type[0]==INT_RESULT
@@ -1158,7 +1167,24 @@ bool mqtt_subscribe_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         // timeout
          && ((args->args[3]==NULL) || (args->arg_type[3]==INT_RESULT && ((int)*((longlong*)args->args[3])>=0)))
         ) {
-        conn->mqtt_subscribe_format = 6;
+        conn->mqtt_subscribe_format = 7;
+        return 0;
+    }
+    //~ 8: mqtt_subscribe(client, topic, [qos], [timeout], [options])
+    else if ( args->arg_count==5
+        // client
+         && args->arg_type[0]==INT_RESULT
+        // topic
+         && args->arg_type[1]==STRING_RESULT
+         && args->args[1]!=NULL
+        // qos
+         && ((args->args[2]==NULL) || (args->arg_type[2]==INT_RESULT && ((int)*((longlong*)args->args[2])>=0 && (int)*((longlong*)args->args[2])<=2)))
+        // timeout
+         && ((args->args[3]==NULL) || (args->arg_type[3]==INT_RESULT && ((int)*((longlong*)args->args[3])>=0)))
+        // topic
+         && args->arg_type[4]==STRING_RESULT
+        ) {
+        conn->mqtt_subscribe_format = 8;
         return 0;
     }
     else {
@@ -1176,11 +1202,8 @@ void mqtt_subscribe_deinit(UDF_INIT *initid)
 char* mqtt_subscribe(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned long* length, char *is_null, char *error)
 {
     connection *conn = (connection *)initid->ptr;
-    char *address, *username, *password, *topic;
-    int topiclengths;
-    // [qos] currently unused
-    __attribute__((unused)) int qos;
-    int timeout;
+    char *address, *username, *password, *topic, *options = "";
+    int timeout, qos, topiclengths = 0;
 
 #ifdef DEBUG
     setlogmask (LOG_UPTO (LOG_NOTICE));
@@ -1194,18 +1217,24 @@ char* mqtt_subscribe(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned lo
     timeout     = DEFAULT_TIMEOUT;
 
     switch (conn->mqtt_subscribe_format) {
-        //~ 6: mqtt_subscribe(client, topic, [qos], [timeout])
-        case 6:
+        //~ 8: mqtt_subscribe(client, topic, [qos], [timeout], [options])
+        case 8:
+            options     = args->args[4]!=NULL ? (char *)args->args[4] : "";
+        //~ 7: mqtt_subscribe(client, topic, [qos], [timeout])
+        case 7:
             timeout     = args->args[3]!=NULL ? (int)*((longlong*)args->args[3]) : DEFAULT_TIMEOUT;
-        //~ 5: mqtt_subscribe(client, topic, [qos])
-        case 5:
+        //~ 6: mqtt_subscribe(client, topic, [qos])
+        case 6:
             qos         = args->args[2]!=NULL ? (int)*((longlong*)args->args[2]) : DEFAULT_QOS;
-        //~ 4: mqtt_subscribe(client, topic)
-        case 4:
+        //~ 5: mqtt_subscribe(client, topic)
+        case 5:
             topic       = (char *)args->args[1];
             topiclengths= args->args[1]!=NULL ? args->lengths[1] : 0;
             conn->client= (MQTTClient)*(longlong*)args->args[0];
             break;
+        //~ 4: mqtt_subscribe(server, [username], [password], topic, [qos], [timeout], [options])
+        case 4:
+            options     = args->args[6]!=NULL ? (char *)args->args[6] : "";
         //~ 3: mqtt_subscribe(server, [username], [password], topic, [qos], [timeout])
         case 3:
             timeout     = args->args[5]!=NULL ? (int)*((longlong*)args->args[5]) : DEFAULT_TIMEOUT;
@@ -1227,9 +1256,20 @@ char* mqtt_subscribe(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned lo
     // Do not assume that the string is null-terminated
     // see https://dev.mysql.com/doc/refman/5.7/en/udf-arguments.html
     switch (conn->mqtt_subscribe_format) {
-        case 1:
-        case 2:
+        case 8:
+            if (args->args[4]!=NULL) options[args->lengths[4]]  = '\0';
+        case 7:
+        case 6:
+        case 5:
+            if (args->args[1]!=NULL) topic[args->lengths[1]]    = '\0';
+            strcpy(last_func, "mqtt_subscribe");
+            conn->rc = last_rc = (conn->client!=NULL) ? MQTTCLIENT_SUCCESS : MQTTCLIENT_DISCONNECTED;
+            break;
+        case 4:
+            if (args->args[6]!=NULL) options[args->lengths[6]]  = '\0';
         case 3:
+        case 2:
+        case 1:
             if (args->args[0]!=NULL) address[args->lengths[0]]  = '\0';
             if (args->args[1]!=NULL) username[args->lengths[1]] = '\0';
             if (args->args[2]!=NULL) password[args->lengths[2]] = '\0';
@@ -1239,28 +1279,16 @@ char* mqtt_subscribe(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned lo
             conn->rc = last_rc = MQTTClient_create(&conn->client, address, GetUUID(), MQTTCLIENT_PERSISTENCE_NONE, NULL);
             if (conn->rc == MQTTCLIENT_SUCCESS) {
 #ifdef DEBUG
-                syslog (LOG_NOTICE, "mqtt_subscribe 'conn - username %s, password %s", username, password);
+                syslog (LOG_NOTICE, "mqtt_subscribe(): username=\"%s\", password=\"%s\", options='%s'", username, password, options);
 #endif
-                memcpy(&conn->conn_opts, &(MQTTClient_connectOptions)MQTTClient_connectOptions_initializer, sizeof(MQTTClient_connectOptions));
-                conn->conn_opts.keepAliveInterval = DEFAULT_KEEPALIVEINTERVAL;
-                conn->conn_opts.cleansession = 1;
-                conn->conn_opts.username = username;
-                conn->conn_opts.password = password;
-                conn->conn_opts.MQTTVersion = MQTTVERSION_DEFAULT;
+                create_conn(conn, username, password, options);
+
                 strcpy(last_func, "MQTTClient_connect");
                 conn->rc = last_rc = MQTTClient_connect(conn->client, &conn->conn_opts);
 #ifdef DEBUG
-                syslog (LOG_NOTICE, "mqtt_subscribe 'client %p, rc=%d", conn->client, conn->rc);
+                syslog (LOG_NOTICE, "mqtt_subscribe(): client=%p, rc=%d", conn->client, conn->rc);
 #endif
             }
-            break;
-
-        case 4:
-        case 5:
-        case 6:
-            if (args->args[1]!=NULL) topic[args->lengths[1]]    = '\0';
-            strcpy(last_func, "mqtt_subscribe");
-            conn->rc = last_rc = (conn->client!=NULL) ? MQTTCLIENT_SUCCESS : MQTTCLIENT_DISCONNECTED;
             break;
     }
 
@@ -1310,7 +1338,7 @@ char* mqtt_subscribe(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned lo
             case 2:
             case 3:
     #ifdef DEBUG
-                syslog (LOG_NOTICE, "mqtt_publish disconnnect 'client %p, rc=%d", conn->client, conn->rc);
+                syslog (LOG_NOTICE, "mqtt_subscribe() disconnnect - client=%p, rc=%d", conn->client, conn->rc);
     #endif
                 MQTTClient_disconnect(conn->client, timeout);
                 MQTTClient_destroy(&conn->client);
