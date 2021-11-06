@@ -162,7 +162,7 @@ Parameter in `{}` are optional an can be omit.<br>
 
 Returns 0 if successful.
 
-Examples:
+Example:
 
 ```sql
 SELECT mqtt_disconnect(@client);
@@ -221,6 +221,21 @@ Returns 0 for success, otherwise error code from MQTTClient_connect() (see also 
 
 You can also retrieve the error code and description using [`mqtt_lasterror()`](#mqtt_lasterror).
 
+Examples:
+
+```sql
+SELECT mqtt_publish('tcp://localhost:1883', 'myuser', 'mypasswd', 'mytopic/time', NOW());
+```
+
+```sql
+SET @client = (SELECT mqtt_connect('ssl://localhost:8883', 'myuser', 'mypasswd', '{"verify":true}'));
+SELECT IF(@client IS NOT NULL, mqtt_publish(@client, 'mytopic/LWT', "Online", NULL, 1), NULL);
+SELECT IF(@client IS NOT NULL, mqtt_publish(@client, 'mytopic/time', NOW()));
+SELECT IF(@client IS NOT NULL, mqtt_publish(@client, 'mytopic/hello', "world", 1, 1));
+SELECT IF(@client IS NOT NULL, mqtt_publish(@client, 'mytopic/LWT', "Offline", NULL, 1), NULL);
+SELECT IF(@client IS NOT NULL, mqtt_disconnect(@client), NULL);
+```
+
 ## mqtt_subscribe
 
 Subsribe to a mqtt topic and returns the payload if any..
@@ -274,6 +289,20 @@ Returns 0 for success, otherwise error code from MQTTClient_connect() (see also 
 
 You can also retrieve the error code and description using [`mqtt_lasterror()`](#mqtt_lasterror).
 
+Examples:
+
+```sql
+SELECT mqtt_subscribe('tcp://localhost:1883', 'myuser', 'mypasswd', 'mytopic/time');
+2021-11-01 14:35:25
+```
+
+```sql
+SET @client = (SELECT mqtt_connect('ssl://localhost:8883', 'myuser', 'mypasswd', '{"verify":true}'));
+SELECT IF(@client IS NOT NULL, mqtt_subscribe(@client, 'mytopic/time', NULL, 1000));
+SELECT IF(@client IS NOT NULL, mqtt_subscribe(@client, 'mytopic/hello', 1, 5000));
+SELECT IF(@client IS NOT NULL, mqtt_disconnect(@client), NULL);
+```
+
 ## mqtt_lasterror
 
 Returns last error as JSON string
@@ -295,10 +324,10 @@ Examples:
 ```
 
 ```sql
-> SELECT 
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_lasterror(),'$."func"')) AS 'func',
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_lasterror(),'$."rc"')) AS 'rc',
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_lasterror(),'$."desc"')) AS 'desc';
+> SELECT
+    JSON_UNQUOTE(JSON_VALUE(mqtt_lasterror(),'$.rc')) AS rc,
+    JSON_UNQUOTE(JSON_VALUE(mqtt_lasterror(),'$."func"')) AS 'func',
+    JSON_UNQUOTE(JSON_VALUE(mqtt_lasterror(),'$."desc"')) AS 'desc';
 
 +--------------------+------+----------------------+
 | func               | rc   | desc                 |
@@ -315,9 +344,9 @@ Examples:
 
 ```sql
 > SELECT 
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_info(),'$.Name')) AS Name,
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_info(),'$."Version"')) AS Version,
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_info(),'$."Build"')) AS Build;
+    JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$.Name')) AS Name,
+    JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Version"')) AS Version,
+    JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Build"')) AS Build;
 +-------------------+---------+----------------------+
 | Name              | Version | Build                |
 +-------------------+---------+----------------------+
@@ -325,14 +354,78 @@ Examples:
 +-------------------+---------+----------------------+
 
 > SELECT 
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_info(),'$."Library"."Product name"')) AS Library,
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_info(),'$."Library"."Version"')) AS `Library Version`,
-    JSON_UNQUOTE(JSON_EXTRACT(mqtt_info(),'$."Library"."Build level"')) AS `Library Build`;
+    JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."Product name"')) AS Library,
+    JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."Version"')) AS `Library Version`,
+    JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."Build level"')) AS `Library Build`;
 +------------------------------------------------+-----------------+-------------------------------+
 | Library                                        | Library Version | Library Build                 |
 +------------------------------------------------+-----------------+-------------------------------+
 | Eclipse Paho Synchronous MQTT C Client Library | 1.3.9           | Sa 23. Okt 11:09:35 CEST 2021 |
 +------------------------------------------------+-----------------+-------------------------------+
+
+> SELECT JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."Product name"')) AS Library;
++------------------------------------------------+
+| Library                                        |
++------------------------------------------------+
+| Eclipse Paho Synchronous MQTT C Client Library |
++------------------------------------------------+
+1 row in set (0.001 sec)
+
+> SELECT JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."Version"')) AS `Library Version`;
++-----------------+
+| Library Version |
++-----------------+
+| 1.3.9           |
++-----------------+
+1 row in set (0.001 sec)
+
+> SELECT JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."Build level"')) AS `Library Build`;
++-------------------------------+
+| Library Build                 |
++-------------------------------+
+| Sa 23. Okt 15:59:53 CEST 2021 |
++-------------------------------+
+1 row in set (0.001 sec)
+
+> SELECT JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."OpenSSL platform"')) AS `OpenSSL platform`;
++------------------------+
+| OpenSSL platform       |
++------------------------+
+| platform: debian-amd64 |
++------------------------+
+1 row in set (0.000 sec)
+
+> SELECT JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."OpenSSL build timestamp"')) AS `OpenSSL build`;
++----------------------------------------+
+| OpenSSL build                          |
++----------------------------------------+
+| built on: Mon Aug 23 17:02:39 2021 UTC |
++----------------------------------------+
+1 row in set (0.001 sec)
+
+> SELECT JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."OpenSSL version"')) AS `OpenSSL version`;
++-----------------------------+
+| OpenSSL version             |
++-----------------------------+
+| OpenSSL 1.1.1f  31 Mar 2020 |
++-----------------------------+
+1 row in set (0.000 sec)
+
+> SELECT JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."OpenSSL directory"')) AS `OpenSSL directory`;
++----------------------------+
+| OpenSSL directory          |
++----------------------------+
+| OPENSSLDIR: '/usr/lib/ssl' |
++----------------------------+
+1 row in set (0.000 sec)
+
+> SELECT JSON_UNQUOTE(JSON_VALUE(mqtt_info(),'$."Library"."OpenSSL flags"')) AS `OpenSSL flags`;
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| OpenSSL flags                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| compiler: gcc -fPIC -pthread -m64 -Wa,--noexecstack -Wall -Wa,--noexecstack -g -O2 -fdebug-prefix-map=/build/openssl-JWge0V/openssl-1.1.1f=. -fstack-protector-strong -Wformat -Werror=format-security -DOPENSSL_TLS_SECURITY_LEVEL=2 -DOPENSSL_USE_NODELETE -DL_ENDIAN -DOPENSSL_PIC -DOPENSSL_CPUID_OBJ -DOPENSSL_IA32_SSE2 -DOPENSSL_BN_ASM_MONT -DOPENSSL_BN_ASM_MONT5 -DOPENSSL_BN_ASM_GF2m -DSHA1_ASM -DSHA256_ASM -DSHA512_ASM -DKECCAK1600_ASM -DRC4_ASM -DMD5_ASM -DAESNI_ASM -DVPAES_ASM -DGHASH_ASM -DECP_NISTZ256_ASM -DX25519_ASM -DPOLY1305_ASM -DNDEBUG -Wdate-time -D_FORTIFY_SOURCE=2 |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+1 row in set (0.000 sec)
 ```
 
 ## Troubleshooting
