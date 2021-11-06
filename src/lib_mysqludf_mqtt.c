@@ -36,14 +36,23 @@ char last_func[128] = {0};
 /* Helper */
 const char *GetUUID(void)
 {
-    static char struuid[sizeof(LIBNAME)+sizeof(LIBVERSION)+UUID_LEN + 1];
-    char uuid[UUID_LEN + 1];
+    static char struuid[sizeof(LIBNAME) + sizeof(LIBVERSION) + UUID_LEN*2 + 16 + 1];
+    char uuid[UUID_LEN*2 + 1];
 
+#ifdef DEBUG
+    setlogmask (LOG_UPTO (LOG_NOTICE));
+    openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+    syslog (LOG_NOTICE, "GetUUID()");
+#endif
     for (int i = 0; i < UUID_LEN; i += 2)
     {
-        sprintf(&uuid[i], "%02x", rand() % 16);
+        sprintf(&uuid[i], "%02x", rand() % 256);
     }
-    sprintf(struuid, "%s-%s_%s", LIBNAME, LIBVERSION, uuid);
+    sprintf(struuid, "%s_%s_%s", LIBNAME, LIBVERSION, uuid);
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "GetUUID() return %s", struuid);
+    closelog ();
+#endif
     return struuid;
 }
 
@@ -51,6 +60,11 @@ void parmerror(const char *context, UDF_ARGS *args)
 {
     char *type;
 
+#ifdef DEBUG
+    setlogmask (LOG_UPTO (LOG_NOTICE));
+    openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+    syslog (LOG_NOTICE, "parmerror()");
+#endif
     fprintf(stderr, "%s parameter error:\n", context);
     for (int i=0; i<args->arg_count; i++) {
         switch (args->arg_type[i]) {
@@ -83,6 +97,9 @@ void parmerror(const char *context, UDF_ARGS *args)
                 (args->arg_type[i]==STRING_RESULT && args->args[i]!=NULL) ? (char *)args->args[i] : ""
                 );
     }
+#ifdef DEBUG
+    closelog ();
+#endif
 }
 
 int get_json_value(const char *jsonstr, const char *key, int type, void *jsonvalue)
@@ -140,8 +157,117 @@ int get_json_value(const char *jsonstr, const char *key, int type, void *jsonval
         rc = JSON_ERROR_NOT_FOUND;
     }
     json_value_free(value);
-    return rc;
+   return rc;
 }
+
+void create_conn(connection *conn, const char* username, const char*password, const char *options)
+{
+    char *opt_str;
+    long opt_long;
+    bool opt_bool;
+
+#ifdef DEBUG
+    setlogmask (LOG_UPTO (LOG_NOTICE));
+    openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+    syslog (LOG_NOTICE, "create_conn()");
+#endif
+    memcpy(&conn->conn_opts, &(MQTTClient_connectOptions)MQTTClient_connectOptions_initializer, sizeof(MQTTClient_connectOptions));
+    memcpy(&conn->ssl_opts, &(MQTTClient_SSLOptions)MQTTClient_SSLOptions_initializer, sizeof(MQTTClient_SSLOptions));
+    memcpy(&conn->will_opts, &(MQTTClient_willOptions)MQTTClient_willOptions_initializer, sizeof(MQTTClient_willOptions));
+    conn->conn_opts.ssl = &conn->ssl_opts;
+
+    // Connection options
+    if (JSON_OK == get_json_value(options, "username", json_string, &opt_str)) {
+        conn->conn_opts.username = opt_str;
+    }
+    else {
+        conn->conn_opts.username = username;
+    }
+    if (JSON_OK == get_json_value(options, "password", json_string, &opt_str)) {
+        conn->conn_opts.password = opt_str;
+    }
+    else {
+        conn->conn_opts.password = password;
+    }
+    if (JSON_OK == get_json_value(options, "keepAliveInterval", json_integer, &opt_long)) {
+        conn->conn_opts.keepAliveInterval = opt_long;
+    }
+    else {
+        conn->conn_opts.keepAliveInterval = DEFAULT_KEEPALIVEINTERVAL;
+    }
+    if (JSON_OK == get_json_value(options, "cleansession", json_boolean, &opt_bool)) {
+        conn->conn_opts.cleansession = opt_bool;
+    }
+    else {
+        conn->conn_opts.cleansession = 1;
+    }
+    if (JSON_OK == get_json_value(options, "MQTTVersion", json_integer, &opt_long)) {
+        conn->conn_opts.MQTTVersion = opt_long;
+    }
+    else {
+        conn->conn_opts.MQTTVersion = MQTTVERSION_DEFAULT;
+    }
+    if (JSON_OK == get_json_value(options, "reliable", json_integer, &opt_long)) {
+        conn->conn_opts.reliable = opt_long;
+    }
+    if (JSON_OK == get_json_value(options, "connectTimeout", json_integer, &opt_long)) {
+        conn->conn_opts.connectTimeout = opt_long;
+    }
+    if (JSON_OK == get_json_value(options, "maxInflightMessages", json_integer, &opt_long)) {
+        conn->conn_opts.maxInflightMessages = opt_long;
+    }
+
+    // SSL options
+    if (JSON_OK == get_json_value(options, "CApath", json_string, &opt_str)) {
+        conn->ssl_opts.CApath = opt_str;
+    }
+    if (JSON_OK == get_json_value(options, "CAfile", json_string, &opt_str)) {
+        conn->ssl_opts.trustStore = opt_str;
+    }
+    if (JSON_OK == get_json_value(options, "keyStore", json_string, &opt_str)) {
+        conn->ssl_opts.keyStore = opt_str;
+    }
+    if (JSON_OK == get_json_value(options, "privateKey", json_string, &opt_str)) {
+        conn->ssl_opts.privateKey = opt_str;
+    }
+    if (JSON_OK == get_json_value(options, "privateKeyPassword", json_string, &opt_str)) {
+        conn->ssl_opts.privateKeyPassword = opt_str;
+    }
+    if (JSON_OK == get_json_value(options, "enabledCipherSuites", json_string, &opt_str)) {
+        conn->ssl_opts.enabledCipherSuites = opt_str;
+    }
+    if (JSON_OK == get_json_value(options, "verify", json_boolean, &opt_bool)) {
+        conn->ssl_opts.verify = opt_bool;
+    }
+    if (JSON_OK == get_json_value(options, "enableServerCertAuth", json_boolean, &opt_bool)) {
+        conn->ssl_opts.enableServerCertAuth = opt_bool;
+    }
+    if (JSON_OK == get_json_value(options, "sslVersion", json_integer, &opt_long)) {
+        conn->ssl_opts.sslVersion = opt_long;
+    }
+
+    // Last Will and Testament options
+    if (JSON_OK == get_json_value(options, "willTopic", json_string, &opt_str)) {
+        conn->will_opts.topicName = opt_str;
+        conn->conn_opts.will = &conn->will_opts;
+    }
+    if (JSON_OK == get_json_value(options, "willMessage", json_string, &opt_str)) {
+        conn->will_opts.message = opt_str;
+        conn->conn_opts.will = &conn->will_opts;
+    }
+    if (JSON_OK == get_json_value(options, "willRetained", json_boolean, &opt_bool)) {
+        conn->will_opts.retained = opt_bool;
+        conn->conn_opts.will = &conn->will_opts;
+    }
+    if (JSON_OK == get_json_value(options, "willQos", json_integer, &opt_long)) {
+        conn->will_opts.qos = opt_long;
+        conn->conn_opts.will = &conn->will_opts;
+    }
+
+#ifdef DEBUG
+    closelog ();
+#endif
+ }
 
 /* Library functions */
 
@@ -182,6 +308,12 @@ char* mqtt_info(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned long* l
     char libinfo[MAX_RET_STRLEN] = {0};
     char *res = (char *)initid->ptr;
 
+#ifdef DEBUG
+    setlogmask (LOG_UPTO (LOG_NOTICE));
+    openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+    syslog (LOG_NOTICE, "mqtt_info()");
+#endif
+
     *is_null = 0;
     *error = 0;
 
@@ -212,6 +344,10 @@ char* mqtt_info(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned long* l
 #pragma GCC diagnostic pop
 
     *length = strlen(res);
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "mqtt_info(): %s", res);
+    closelog ();
+#endif
     return res;
 }
 
@@ -249,6 +385,12 @@ char* mqtt_lasterror(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned lo
 {
     char *res = (char *)initid->ptr;
 
+#ifdef DEBUG
+    setlogmask (LOG_UPTO (LOG_NOTICE));
+    openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+    syslog (LOG_NOTICE, "mqtt_lasterror()");
+#endif
+
     *is_null = 0;
     *error = 0;
     if (res == NULL) {
@@ -259,6 +401,10 @@ char* mqtt_lasterror(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned lo
     }
     snprintf(res, MAX_RET_STRLEN, "{\"func\":\"%s\",\"rc\":%d, \"desc\": \"%s\"}", last_func, last_rc, MQTTClient_strerror(last_rc));
     *length = strlen(res);
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "mqtt_lasterror(): %s", res);
+    closelog ();
+#endif
     return res;
 }
 
@@ -326,9 +472,6 @@ ulonglong mqtt_connect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
     char *username = "";
     char *password = "";
     char *options  = "";
-    char *opt_str;
-    long opt_long;
-    bool opt_bool;
 
     // Do not assume that the string is null-terminated
     // see https://dev.mysql.com/doc/refman/5.7/en/udf-arguments.html
@@ -349,6 +492,9 @@ ulonglong mqtt_connect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
         options[args->lengths[3]] = '\0';
     }
 
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "mqtt_connect(): MQTTClient_create \"%s\"", address);
+#endif
     strcpy(last_func, "MQTTClient_create");
     int rc = last_rc = MQTTClient_create(&conn->client, address, GetUUID(), MQTTCLIENT_PERSISTENCE_NONE, NULL);
     if (rc != MQTTCLIENT_SUCCESS)
@@ -362,109 +508,7 @@ ulonglong mqtt_connect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
         return rc;
     }
 
-#ifdef DEBUG
-    syslog (LOG_NOTICE, "mqtt_connect 'conn - username %s, password %s", username, password);
-#endif
-    memcpy(&conn->conn_opts, &(MQTTClient_connectOptions)MQTTClient_connectOptions_initializer, sizeof(MQTTClient_connectOptions));
-    memcpy(&conn->ssl_opts, &(MQTTClient_SSLOptions)MQTTClient_SSLOptions_initializer, sizeof(MQTTClient_SSLOptions));
-    memcpy(&conn->will_opts, &(MQTTClient_willOptions)MQTTClient_willOptions_initializer, sizeof(MQTTClient_willOptions));
-
-    // Connection options
-    if (JSON_OK == get_json_value(options, "username", json_string, &opt_str)) {
-        conn->conn_opts.username = opt_str;
-    }
-    else {
-        conn->conn_opts.username = username;
-    }
-    if (JSON_OK == get_json_value(options, "password", json_string, &opt_str)) {
-        conn->conn_opts.password = opt_str;
-    }
-    else {
-        conn->conn_opts.password = password;
-    }
-    if (JSON_OK == get_json_value(options, "keepAliveInterval", json_integer, &opt_long)) {
-        conn->conn_opts.keepAliveInterval = opt_long;
-    }
-    else {
-        conn->conn_opts.keepAliveInterval = DEFAULT_KEEPALIVEINTERVAL;
-    }
-    if (JSON_OK == get_json_value(options, "cleansession", json_boolean, &opt_bool)) {
-        conn->conn_opts.cleansession = opt_bool;
-    }
-    else {
-        conn->conn_opts.cleansession = 1;
-    }
-    if (JSON_OK == get_json_value(options, "MQTTVersion", json_integer, &opt_long)) {
-        conn->conn_opts.MQTTVersion = opt_long;
-    }
-    else {
-        conn->conn_opts.MQTTVersion = MQTTVERSION_DEFAULT;
-    }
-    if (JSON_OK == get_json_value(options, "reliable", json_integer, &opt_long)) {
-        conn->conn_opts.reliable = opt_long;
-    }
-    if (JSON_OK == get_json_value(options, "connectTimeout", json_integer, &opt_long)) {
-        conn->conn_opts.connectTimeout = opt_long;
-    }
-    if (JSON_OK == get_json_value(options, "maxInflightMessages", json_integer, &opt_long)) {
-        conn->conn_opts.maxInflightMessages = opt_long;
-    }
-
-    // SSL options
-    if (JSON_OK == get_json_value(options, "CApath", json_string, &opt_str)) {
-        conn->ssl_opts.CApath = opt_str;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-    if (JSON_OK == get_json_value(options, "CAfile", json_string, &opt_str)) {
-        conn->ssl_opts.trustStore = opt_str;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-    if (JSON_OK == get_json_value(options, "keyStore", json_string, &opt_str)) {
-        conn->ssl_opts.keyStore = opt_str;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-    if (JSON_OK == get_json_value(options, "privateKey", json_string, &opt_str)) {
-        conn->ssl_opts.privateKey = opt_str;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-    if (JSON_OK == get_json_value(options, "privateKeyPassword", json_string, &opt_str)) {
-        conn->ssl_opts.privateKeyPassword = opt_str;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-    if (JSON_OK == get_json_value(options, "enabledCipherSuites", json_string, &opt_str)) {
-        conn->ssl_opts.enabledCipherSuites = opt_str;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-    if (JSON_OK == get_json_value(options, "verify", json_boolean, &opt_bool)) {
-        conn->ssl_opts.verify = opt_bool;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-    if (JSON_OK == get_json_value(options, "enableServerCertAuth", json_boolean, &opt_bool)) {
-        conn->ssl_opts.enableServerCertAuth = opt_bool;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-    if (JSON_OK == get_json_value(options, "sslVersion", json_integer, &opt_long)) {
-        conn->ssl_opts.sslVersion = opt_long;
-        conn->conn_opts.ssl = &conn->ssl_opts;
-    }
-
-    // Last Will and Testament options
-    if (JSON_OK == get_json_value(options, "willTopic", json_string, &opt_str)) {
-        conn->will_opts.topicName = opt_str;
-        conn->conn_opts.will = &conn->will_opts;
-    }
-    if (JSON_OK == get_json_value(options, "willMessage", json_string, &opt_str)) {
-        conn->will_opts.message = opt_str;
-        conn->conn_opts.will = &conn->will_opts;
-    }
-    if (JSON_OK == get_json_value(options, "willRetained", json_boolean, &opt_bool)) {
-        conn->will_opts.retained = opt_bool;
-        conn->conn_opts.will = &conn->will_opts;
-    }
-    if (JSON_OK == get_json_value(options, "willQos", json_integer, &opt_long)) {
-        conn->will_opts.qos = opt_long;
-        conn->conn_opts.will = &conn->will_opts;
-    }
+    create_conn(conn, username, password, options);
 
 #ifdef DEBUG
     syslog (LOG_NOTICE, "mqtt_connect 'client %p", conn->client);
@@ -521,6 +565,11 @@ ulonglong mqtt_disconnect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char 
 {
     MQTTClient client = (MQTTClient)*(longlong*)args->args[0];
 
+#ifdef DEBUG
+    setlogmask (LOG_UPTO (LOG_NOTICE));
+    openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+    syslog (LOG_NOTICE, "mqtt_disconnect()");
+#endif
     strcpy(last_func, "MQTTClient_disconnect");
     int rc = last_rc = MQTTClient_disconnect(client, DEFAULT_TIMEOUT);
     if (rc == MQTTCLIENT_SUCCESS) {
@@ -529,6 +578,10 @@ ulonglong mqtt_disconnect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char 
     else {
         *error = 1;
     }
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "mqtt_disconnect() rc=%d", rc);
+    closelog ();
+#endif
     return rc;
 }
 
@@ -539,15 +592,25 @@ ulonglong mqtt_disconnect(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char 
  * Publish a mqtt payload and returns its status.
  *
  * Possible calls
- * mqtt_publish(server, [username], [password], topic, [payload] {,[qos] {,[retained] {,[timeout]}}})
+ * mqtt_publish(server, [username], [password], topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})
  * mqtt_publish(client, topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})
  */
 bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
 {
+#ifdef DEBUG
+    setlogmask (LOG_UPTO (LOG_NOTICE));
+    openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+#endif
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "mqtt_publish_init()");
+#endif
     initid->ptr = malloc(sizeof(connection));
     if (initid->ptr == NULL) {
         parmerror("mqtt_publish()", args);
         strcpy(message, "memory allocation error");
+#ifdef DEBUG
+        closelog ();
+#endif
         return 1;
     }
     connection *conn = (connection *)initid->ptr;
@@ -572,6 +635,9 @@ bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
          && args->arg_type[4]==STRING_RESULT
         ) {
         conn->mqtt_publish_format = 1;
+#ifdef DEBUG
+        closelog ();
+#endif
         return 0;
     }
     //~ 2: mqtt_publish(server, [username], [password], topic, [payload], [qos])
@@ -592,6 +658,9 @@ bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
          && ((args->args[5]==NULL) || (args->arg_type[5]==INT_RESULT && ((int)*((longlong*)args->args[5])>=0 && (int)*((longlong*)args->args[5])<=2)))
         ) {
         conn->mqtt_publish_format = 2;
+#ifdef DEBUG
+        closelog ();
+#endif
         return 0;
     }
     //~ 3: mqtt_publish(server, [username], [password], topic, [payload], [qos], [retained])
@@ -614,6 +683,9 @@ bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
          && ((args->args[6]==NULL) || (args->arg_type[6]==INT_RESULT && ((int)*((longlong*)args->args[6])>=0 && (int)*((longlong*)args->args[6])<=1)))
         ) {
         conn->mqtt_publish_format = 3;
+#ifdef DEBUG
+        closelog ();
+#endif
         return 0;
     }
     //~ 4: mqtt_publish(server, [username], [password], topic, [payload], [qos], [retained], [timeout])
@@ -638,9 +710,41 @@ bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
          && ((args->args[7]==NULL) || (args->arg_type[7]==INT_RESULT && ((int)*((longlong*)args->args[7])>=0)))
         ) {
         conn->mqtt_publish_format = 4;
+#ifdef DEBUG
+        closelog ();
+#endif
         return 0;
     }
-    //~ 5: mqtt_publish(client, topic, [payload])
+    //~ 5: mqtt_publish(server, [username], [password], topic, [payload], [qos], [retained], [timeout], [options])
+    else if ( args->arg_count==9
+        // server
+         && args->arg_type[0]==STRING_RESULT
+         && args->args[0]!=NULL
+        // username
+         && args->arg_type[1]==STRING_RESULT
+        // password
+         && args->arg_type[2]==STRING_RESULT
+        // topic
+         && args->arg_type[3]==STRING_RESULT
+         && args->args[3]!=NULL
+        // payload
+         && args->arg_type[4]==STRING_RESULT
+        // qos
+         && ((args->args[5]==NULL) || (args->arg_type[5]==INT_RESULT && ((int)*((longlong*)args->args[5])>=0 && (int)*((longlong*)args->args[5])<=2)))
+        // retained
+         && ((args->args[6]==NULL) || (args->arg_type[6]==INT_RESULT && ((int)*((longlong*)args->args[6])>=0 && (int)*((longlong*)args->args[6])<=1)))
+        // timeout
+         && ((args->args[7]==NULL) || (args->arg_type[7]==INT_RESULT && ((int)*((longlong*)args->args[7])>=0)))
+         // options
+         && args->arg_type[8]==STRING_RESULT
+        ) {
+        conn->mqtt_publish_format = 5;
+#ifdef DEBUG
+        closelog ();
+#endif
+        return 0;
+    }
+    //~ 6: mqtt_publish(client, topic, [payload])
     else if ( args->arg_count==3
         // client
          && args->arg_type[0]==INT_RESULT
@@ -650,10 +754,13 @@ bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         // payload
          && args->arg_type[2]==STRING_RESULT
         ) {
-        conn->mqtt_publish_format = 5;
+        conn->mqtt_publish_format = 6;
+#ifdef DEBUG
+        closelog ();
+#endif
         return 0;
     }
-    //~ 6: mqtt_publish(client, topic, [payload], [qos])
+    //~ 7: mqtt_publish(client, topic, [payload], [qos])
     else if ( args->arg_count==4
         // client
          && args->arg_type[0]==INT_RESULT
@@ -665,10 +772,13 @@ bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         // qos
          && ((args->args[3]==NULL) || (args->arg_type[3]==INT_RESULT && ((int)*((longlong*)args->args[3])>=0 && (int)*((longlong*)args->args[3])<=2)))
         ) {
-        conn->mqtt_publish_format = 6;
+        conn->mqtt_publish_format = 7;
+#ifdef DEBUG
+        closelog ();
+#endif
         return 0;
     }
-    //~ 7: mqtt_publish(client, topic, [payload], [qos], [retained])
+    //~ 8: mqtt_publish(client, topic, [payload], [qos], [retained])
     else if ( args->arg_count==5
         // client
          && args->arg_type[0]==INT_RESULT
@@ -682,10 +792,13 @@ bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         // retained
          && ((args->args[4]==NULL) || (args->arg_type[4]==INT_RESULT && ((int)*((longlong*)args->args[4])>=0 && (int)*((longlong*)args->args[4])<=1)))
         ) {
-        conn->mqtt_publish_format = 7;
+        conn->mqtt_publish_format = 8;
+#ifdef DEBUG
+        closelog ();
+#endif
         return 0;
     }
-    //~ 8: mqtt_publish(client, topic, [payload], [qos], [retained], [timeout])
+    //~ 9: mqtt_publish(client, topic, [payload], [qos], [retained], [timeout])
     else if ( args->arg_count==6
         // client
          && args->arg_type[0]==INT_RESULT
@@ -701,33 +814,72 @@ bool mqtt_publish_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
         // timeout
          && ((args->args[5]==NULL) || (args->arg_type[5]==INT_RESULT && ((int)*((longlong*)args->args[5])>=0)))
         ) {
-        conn->mqtt_publish_format = 8;
+        conn->mqtt_publish_format = 9;
+#ifdef DEBUG
+        closelog ();
+#endif
         return 0;
     }
-    else {
-        parmerror("mqtt_publish()", args);
-        strcpy(message, "function argument(s) error");
-        return 1;
+    //~ 10: mqtt_publish(client, topic, [payload], [qos], [retained], [timeout], [options])
+    else if ( args->arg_count==7
+        // client
+         && args->arg_type[0]==INT_RESULT
+        // topic
+         && args->arg_type[1]==STRING_RESULT
+         && args->args[1]!=NULL
+        // payload
+         && args->arg_type[2]==STRING_RESULT
+        // qos
+         && ((args->args[3]==NULL) || (args->arg_type[3]==INT_RESULT && ((int)*((longlong*)args->args[3])>=0 && (int)*((longlong*)args->args[3])<=2)))
+        // retained
+         && ((args->args[4]==NULL) || (args->arg_type[4]==INT_RESULT && ((int)*((longlong*)args->args[4])>=0 && (int)*((longlong*)args->args[4])<=1)))
+        // timeout
+         && ((args->args[5]==NULL) || (args->arg_type[5]==INT_RESULT && ((int)*((longlong*)args->args[5])>=0)))
+        // options
+         && (args->arg_type[6]==STRING_RESULT)
+        ) {
+        conn->mqtt_publish_format = 10;
+#ifdef DEBUG
+        closelog ();
+#endif
+        return 0;
     }
-
-
-
+    parmerror("mqtt_publish()", args);
+    strcpy(message, "function argument(s) error");
+#ifdef DEBUG
+    closelog ();
+#endif
+    return 1;
 }
 void mqtt_publish_deinit(UDF_INIT *initid)
 {
+#ifdef DEBUG
+    setlogmask (LOG_UPTO (LOG_NOTICE));
+    openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+#endif
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "mqtt_publish_deinit");
+#endif
     if (initid->ptr != NULL) {
         free(initid->ptr);
     }
+#ifdef DEBUG
+    closelog ();
+#endif
 }
 ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *error)
 {
     connection *conn = (connection *)initid->ptr;
-    char *address, *username, *password, *topic, *payload;
-    int qos,retained, timeout, payloadlength;
+    char *address, *username, *password, *topic, *payload, *options = "";
+    int qos, retained, timeout, payloadlength = 0;
 
 #ifdef DEBUG
     setlogmask (LOG_UPTO (LOG_NOTICE));
     openlog (LIBNAME, LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+#endif
+
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "mqtt_publish(): mqtt_publish_format %d", conn->mqtt_publish_format);
 #endif
 
     *is_null = 0;
@@ -738,22 +890,28 @@ ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
     timeout     = DEFAULT_TIMEOUT;
 
     switch (conn->mqtt_publish_format) {
-        //~ 8: mqtt_publish(client, topic, [payload], [qos], [retained], [timeout])
-        case 8:
+        //~ 10: mqtt_publish(client, topic, [payload], [qos], [retained], [timeout], [options])
+        case 10:
+            options     = args->args[6]!=NULL ? (char *)args->args[6] : "";
+        //~ 9: mqtt_publish(client, topic, [payload], [qos], [retained], [timeout])
+        case 9:
             timeout     = args->args[5]!=NULL ? (int)*((longlong*)args->args[5]) : DEFAULT_TIMEOUT;
-        //~ 7: mqtt_publish(client, topic, [payload], [qos], [retained])
-        case 7:
+        //~ 8: mqtt_publish(client, topic, [payload], [qos], [retained])
+        case 8:
             retained    = args->args[4]!=NULL ? (int)*((longlong*)args->args[4]) : DEFAULT_RETAINED;
-        //~ 6: mqtt_publish(client, topic, [payload], [qos])
-        case 6:
+        //~ 7: mqtt_publish(client, topic, [payload], [qos])
+        case 7:
             qos         = args->args[3]!=NULL ? (int)*((longlong*)args->args[3]) : DEFAULT_QOS;
-        //~ 5: mqtt_publish(client, topic, [payload])
-        case 5:
+        //~ 6: mqtt_publish(client, topic, [payload])
+        case 6:
             payload     = args->args[2]!=NULL ? (char *)args->args[2] : "";
             payloadlength=args->args[2]!=NULL ? args->lengths[2] : 0;
             topic       = (char *)args->args[1];
             conn->client= (MQTTClient)*(longlong*)args->args[0];
             break;
+        //~ 5: mqtt_publish(server, [username], [password], topic, [payload], [qos], [retained], [timeout], [options])
+        case 5:
+            options     = args->args[8]!=NULL ? (char *)args->args[8] : "";
         //~ 4: mqtt_publish(server, [username], [password], topic, [payload], [qos], [retained], [timeout])
         case 4:
             timeout     = args->args[7]!=NULL ? (int)*((longlong*)args->args[7]) : DEFAULT_TIMEOUT;
@@ -775,32 +933,57 @@ ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
         default:
             break;
     }
+#ifdef DEBUG
+    syslog (LOG_NOTICE, "mqtt_publish(): preset done");
+#endif
 
     // Do not assume that the string is null-terminated
     // see https://dev.mysql.com/doc/refman/5.7/en/udf-arguments.html
     switch (conn->mqtt_publish_format) {
-        case 1:
-        case 2:
-        case 3:
+        case 10:
+            if (args->args[6]!=NULL) options[args->lengths[6]]  = '\0';
+        case 9:
+        case 8:
+        case 7:
+        case 6:
+            if (args->args[1]!=NULL) topic[args->lengths[1]]    = '\0';
+            if (args->args[2]!=NULL) payload[args->lengths[2]]  = '\0';
+            strcpy(last_func, "mqtt_publish");
+            conn->rc = last_rc = (conn->client!=NULL) ? MQTTCLIENT_SUCCESS : MQTTCLIENT_DISCONNECTED;
+            break;
+        case 5:
+            if (args->args[8]!=NULL) options[args->lengths[8]]  = '\0';
         case 4:
+        case 3:
+        case 2:
+        case 1:
             if (args->args[0]!=NULL) address[args->lengths[0]]  = '\0';
             if (args->args[1]!=NULL) username[args->lengths[1]] = '\0';
             if (args->args[2]!=NULL) password[args->lengths[2]] = '\0';
             if (args->args[3]!=NULL) topic[args->lengths[3]]    = '\0';
             if (args->args[4]!=NULL) payload[args->lengths[4]]  = '\0';
 
+#ifdef DEBUG
+            syslog (LOG_NOTICE, "mqtt_publish(): MQTTClient_create \"%s\"", address);
+#endif
             strcpy(last_func, "MQTTClient_create");
-            conn->rc = last_rc = MQTTClient_create(&conn->client, address, GetUUID(), MQTTCLIENT_PERSISTENCE_NONE, NULL);
+            last_rc = MQTTClient_create(&conn->client, address, GetUUID(), MQTTCLIENT_PERSISTENCE_NONE, NULL);
+#ifdef DEBUG
+            syslog (LOG_NOTICE, "mqtt_publish(): MQTTClient_create() returns %d", last_rc);
+#endif
+            conn->rc = last_rc;
             if (conn->rc == MQTTCLIENT_SUCCESS) {
 #ifdef DEBUG
-                syslog (LOG_NOTICE, "mqtt_publish 'conn - username %s, password %s", username, password);
+                syslog (LOG_NOTICE, "mqtt_publish(): username=\"%s\", password=\"%s\", options=\"%s\"", username, password, options);
 #endif
-                memcpy(&conn->conn_opts, &(MQTTClient_connectOptions)MQTTClient_connectOptions_initializer, sizeof(MQTTClient_connectOptions));
-                conn->conn_opts.keepAliveInterval = DEFAULT_KEEPALIVEINTERVAL;
-                conn->conn_opts.cleansession = 1;
-                conn->conn_opts.username = username;
-                conn->conn_opts.password = password;
-                conn->conn_opts.MQTTVersion = MQTTVERSION_DEFAULT;
+#ifdef DEBUG
+                syslog (LOG_NOTICE, "mqtt_publish(): create_conn");
+#endif
+                create_conn(conn, username, password, options);
+
+#ifdef DEBUG
+                syslog (LOG_NOTICE, "mqtt_publish(): MQTTClient_connect");
+#endif
                 strcpy(last_func, "MQTTClient_connect");
                 conn->rc = last_rc = MQTTClient_connect(conn->client, &conn->conn_opts);
 #ifdef DEBUG
@@ -808,23 +991,16 @@ ulonglong mqtt_publish(UDF_INIT *initid, UDF_ARGS *args, char *is_null, char *er
 #endif
             }
             break;
-
-        case 5:
-        case 6:
-        case 7:
-        case 8:
-            if (args->args[1]!=NULL) topic[args->lengths[1]]    = '\0';
-            if (args->args[2]!=NULL) payload[args->lengths[2]]  = '\0';
-            strcpy(last_func, "mqtt_publish");
-            conn->rc = last_rc = (conn->client!=NULL) ? MQTTCLIENT_SUCCESS : MQTTCLIENT_DISCONNECTED;
-            break;
     }
 
+#ifdef DEBUG
+        syslog (LOG_NOTICE, "mqtt_publish(): rc=%d", conn->rc);
+#endif
     if (conn->rc == MQTTCLIENT_SUCCESS) {
         MQTTClient_message pubmsg = MQTTClient_message_initializer;
         MQTTClient_deliveryToken token;
 #ifdef DEBUG
-        syslog (LOG_NOTICE, "mqtt_publish '%s': %s", topic, payload);
+        syslog (LOG_NOTICE, "mqtt_publish() '%s': %s", topic, payload);
 #endif
         pubmsg.payload = payload;
         pubmsg.payloadlen = payloadlength;
