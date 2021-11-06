@@ -77,8 +77,9 @@ To use optional parameters after omitting other optional parameters, use `NULL`.
 
 <dl>
 <dt><code>server</code>    String</dt>
-<dd>Specifying the server to which the client will connect. It takes the form "protocol://host:port". Currently protocol must be tcp or ssl. For host, you can specify either an IP address or a host name.<br>
-For instance, to connect to a server running on the local machines with the default MQTT port, specify <code>tcp://localhost:1883</code>.</dd>
+<dd>Specifying the server to which the client will connect. It takes the form <code>protocol://host:port</code>.<br>Currently <code>protocol</code> must be <code>tcp</code> or <code>ssl</code>.<br>
+For <code>host</code> you can specify either an IP address or a hostname.<br>
+For instance, to connect to a server running on the local machines with the default MQTT port, specify <code>tcp://localhost:1883</code> or <code>ssl://localhost:8883</code> for an SSL connection.</dd>
 <dt><code>username</code>  String</dt>
 <dd>Username for authentification. If <code>username</code> should remain unused, omit the parameter or set it to <code>NULL</code></dd>
 <dt><code>password</code>  String</dt>
@@ -177,13 +178,13 @@ To use optional parameters after omitting other optional parameters, use `NULL`.
 
 Possible call variants:
 
-`mqtt_publish(server, [username], [password], topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})`
+(1) `mqtt_publish(server, [username], [password], topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})`<br>
+(2) `mqtt_publish(client, topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})`
 
-This call connects to MQTT, publish the payload and disconnnect after publish. This variant is provided for individual single `mqtt_publish()` calls.
+Variant (1) connects to MQTT, publish the payload and disconnnect after publish. This variant is provided for individual single `mqtt_publish()` calls.<br>
+Because this variant may slow down when a lot of publishing should be done, you can do publish using variant (2) using a client handle from a previous [`mqtt_connect()`](#mqtt_connect).
 
-`mqtt_publish(client, topic, [payload] {,[qos] {,[retained] {,[timeout] {,[options]}}}})`
-
-Because the previous variant may slow down when a lot of publishing should be done you can do publish using an alternate way with a client handle. This variant should be used for multiple `mqtt_publish()` calls with a preceding [`mqtt_connect()`](#mqtt_connect) and a final [`mqtt_disconnect()`](#mqtt_disconnect):
+Variant (2) should be used for multiple `mqtt_publish()` calls with a preceding [`mqtt_connect()`](#mqtt_connect) and a final [`mqtt_disconnect()`](#mqtt_disconnect):
 
 1. Call [`mqtt_connect()`](#mqtt_connect) to get a valid mqtt client connection handle
 2. Call [`mqtt_publish()`](#mqtt_publish) using `handle` parameter
@@ -192,8 +193,9 @@ Because the previous variant may slow down when a lot of publishing should be do
 
 <dl>
 <dt><code>server</code>   String</dt>
-<dd>Specifying the server to which the client will connect. It takes the form "protocol://host:port". Currently protocol must be tcp or ssl. For host, you can specify either an IP address or a host name.<br>
-For instance, to connect to a server running on the local machines with the default MQTT port, specify <code>tcp://localhost:1883</code>.</dd>
+<dd>Specifying the server to which the client will connect. It takes the form <code>protocol://host:port</code>.<br>Currently <code>protocol</code> must be <code>tcp</code> or <code>ssl</code>.<br>
+For <code>host</code> you can specify either an IP address or a hostname.<br>
+For instance, to connect to a server running on the local machines with the default MQTT port, specify <code>tcp://localhost:1883</code> or <code>ssl://localhost:8883</code> for an SSL connection.</dd>
 <dt><code>username</code> String</dt>
 <dd>Username for authentification or <code>NULL</code> if unused</dd>
 <dt><code>password</code> String</dt>
@@ -229,13 +231,13 @@ To use optional parameters after omitting other optional parameters, use `NULL`.
 
 Possible call variants:
 
-`mqtt_subscribe(server, [username], [password], topic, {,[qos] {,[timeout] {,[options]}}})`
+(1) `mqtt_subscribe(server, [username], [password], topic, {,[qos] {,[timeout] {,[options]}}})`<br>
+(2) `mqtt_subscribe(client, topic, [payload] {,[qos] {,[timeout] {,[options]}}})`
 
-This call connects to MQTT, publish the payload and disconnnect after publish. This variant is provided for individual single `mqtt_publish()` calls.
+Variant (1) connects to MQTT, subscribes to a topic and disconnnect after subscribe. This variant is provided for individual single `mqtt_subscribe()` calls.<br>
+Because this variant may slow down when a lot of subscribes should be done, you can do subscribes using variant (2) using a client handle from a previous [`mqtt_connect()`](#mqtt_connect).
 
-`mqtt_subscribe(client, topic, [payload] {,[qos] {,[timeout] {,[options]}}})`
-
-Because the previous variant may slow down when a lot of publishing should be done you can do publish using an alternate way with a client handle. This variant should be used for multiple `mqtt_subscribe()` calls with a preceding [`mqtt_connect()`](#mqtt_connect) and a final [`mqtt_disconnect()`](#mqtt_disconnect):
+Vvariant (2) should be used for multiple `mqtt_subscribe()` calls with a preceding [`mqtt_connect()`](#mqtt_connect) and a final [`mqtt_disconnect()`](#mqtt_disconnect):
 
 1. Call [`mqtt_connect()`](#mqtt_connect) to get a valid mqtt client connection handle
 2. Call [`mqtt_subscribe()`](#mqtt_publish) using `handle` parameter
@@ -244,8 +246,9 @@ Because the previous variant may slow down when a lot of publishing should be do
 
 <dl>
 <dt><code>server</code>   String</dt>
-<dd>Specifying the server to which the client will connect. It takes the form "protocol://host:port". Currently protocol must be tcp or ssl. For host, you can specify either an IP address or a host name.<br>
-For instance, to connect to a server running on the local machines with the default MQTT port, specify <code>tcp://localhost:1883</code>.</dd>
+<dd>Specifying the server to which the client will connect. It takes the form <code>protocol://host:port</code>.<br>Currently <code>protocol</code> must be <code>tcp</code> or <code>ssl</code>.<br>
+For <code>host</code> you can specify either an IP address or a hostname.<br>
+For instance, to connect to a server running on the local machines with the default MQTT port, specify <code>tcp://localhost:1883</code> or <code>ssl://localhost:8883</code> for an SSL connection.</dd>
 <dt><code>username</code> String</dt>
 <dd>Username for authentification or <code>NULL</code> if unused</dd>
 <dt><code>password</code> String</dt>

@@ -34,6 +34,16 @@ volatile int last_rc = 0;
 char last_func[128] = {0};
 
 /* Helper */
+char *strcrpl(char *str, char find, char replace)
+{
+    for (char *p = str; *p; p++) {
+        if (find == *p) {
+            *p = replace;
+        }
+    }
+    return str;
+}
+
 const char *GetUUID(void)
 {
     static char struuid[sizeof(LIBNAME) + sizeof(LIBVERSION) + UUID_LEN*2 + 16 + 1];
@@ -333,7 +343,12 @@ char* mqtt_info(UDF_INIT *initid, UDF_ARGS *args, char* result, unsigned long* l
             strcat(libinfo, ",");
         }
         if( (strlen(libinfo) + strlen(mqttClientVersion->name) + strlen(mqttClientVersion->value) + 5) < MAX_RET_STRLEN-1) {
-            sprintf(libinfo+strlen(libinfo), "\"%s\":\"%s\"", mqttClientVersion->name, mqttClientVersion->value);
+            char *value = malloc(strlen(mqttClientVersion->value));
+            if (value != NULL) {
+                strcpy(value, mqttClientVersion->value);
+                sprintf(libinfo+strlen(libinfo), "\"%s\":\"%s\"", mqttClientVersion->name, strcrpl(value, '"', '\''));
+                free(value);
+            }
             mqttClientVersion++;
         }
     }
